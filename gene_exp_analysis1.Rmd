@@ -19,11 +19,12 @@ library(nnet)
 library(simstudy)
 library(magrittr)
 library(class)
+library(dplyr)
 ```
 
 This part, I loading the raw htseq-count of transcriptomic data, convert it to read count data and write it to a file.
 ```{r reading transcriptomic data}
-gene.exp <- read.table("/home/samra/Dokumente/Studium/Bioinformatik/Module/Master/SoSe2023/Data Science Part1/Project/MultiOmic_Datascience-main/data/TCGA-BLCA.htseq_counts.tsv.gz",
+gene.exp <- read.table("../data/TCGA-BLCA.htseq_counts.tsv.gz",
                      header = TRUE,sep = "\t",stringsAsFactors = FALSE)
 #colnames(gene.exp) <- gsub("\\.","-",colnames(gene.exp))
 gene.exp <- gene.exp[grepl("ENS", gene.exp$Ensembl_ID), ]
@@ -40,12 +41,12 @@ gene.exp <- 2^gene.exp -1
 gene.exp <- subset(gene.exp, !(rowSums(gene.exp < 5) == ncol(gene.exp)))
 
 genes.arr <- row.names(gene.exp) #name of genes
-write.table(gene.exp, file = "/home/samra/Dokumente/Studium/Bioinformatik/Module/Master/SoSe2023/Data Science Part1/Project/MultiOmic_Datascience-main/results/gene_exp_analysis/count_data.csv", sep = "\t", quote = FALSE, row.names = TRUE)
+write.table(gene.exp, file = "../results/gene_exp_analysis/count_data.csv", sep = "\t", quote = FALSE, row.names = TRUE)
 gene.exp <- as.data.frame(lapply(gene.exp, as.integer))
 ```
 
 ```{r reading clinical data}
-clin.data <- read.csv("/home/samra/Dokumente/Studium/Bioinformatik/Module/Master/SoSe2023/Data Science Part1/Project/MultiOmic_Datascience-main/data/TCGA-BLCA.survival.tsv",
+clin.data <- read.csv("../data/TCGA-BLCA.survival.tsv",
                       header = TRUE,sep = "\t",stringsAsFactors = FALSE)
 
 clin.data <- clin.data[order(clin.data$sample), ]
@@ -53,7 +54,7 @@ clin.data$sample <- gsub("\\-",".",clin.data$sample)
 ```
 
 ```{r reading phenotype data}
-phenotype <- read.csv("/home/samra/Dokumente/Studium/Bioinformatik/Module/Master/SoSe2023/Data Science Part1/Project/MultiOmic_Datascience-main/data/TCGA-BLCA.GDC_phenotype.tsv.gz",header=TRUE,sep="\t")
+phenotype <- read.csv("../data/TCGA-BLCA.GDC_phenotype.tsv.gz",header=TRUE,sep="\t")
 phenotype <- phenotype[order(phenotype$submitter_id.samples), ]
 phenotype$submitter_id.samples <- gsub("\\-",".",phenotype$submitter_id.samples)
 ```
@@ -70,7 +71,7 @@ clin.data <- clin.data[clin.data$sample %in% phenotype$submitter_id.samples, ]
 phenotype$tumor_stage.diagnoses <- factor(phenotype$tumor_stage.diagnoses, levels = c("stage i", "stage ii", "stage iii", "stage iv"))
 phenotype$tumor_stage.diagnoses <- as.numeric(phenotype$tumor_stage.diagnoses)
 clin.data$stage <- phenotype$tumor_stage.diagnoses
-write.table(clin.data, file = "/home/samra/Dokumente/Studium/Bioinformatik/Module/Master/SoSe2023/Data Science Part1/Project/MultiOmic_Datascience-main/results/gene_exp_analysis/clinical.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(clin.data, file = "../results/gene_exp_analysis/clinical.csv", sep = "\t", quote = FALSE, row.names = FALSE)
 
 ```
 
@@ -93,8 +94,8 @@ plotMA(res)
 
 ```{r volcano plot}
 #p <- ggplot(data=res, aes(x=log2FoldChange, y=-log10(pvalue))) + geom_point()
-plot(res$log2FoldChange, -log10(res$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
-    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
+#plot(res$log2FoldChange, -log10(res$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+#    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
 
 #EnhancedVolcano(res, x = res$log2FoldChange, y = -log10(res$padj), lab = res$gene,
 #    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", FCcutoff = 1, pCutoff = 1e-4)
@@ -110,22 +111,113 @@ plot(res$log2FoldChange, -log10(res$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,
 ```
 
 
-```{r Deseq2 with stage}
-dds_stage <- DESeqDataSetFromMatrix(countData=gene.exp,
-                              colData=DataFrame(OS=as.factor(clin.data$OS),stage=as.factor(clin.data$stage)),
+```{r Deseq2 with all stages}
+#dds_stage <- DESeqDataSetFromMatrix(countData=gene.exp,
+                              #colData=DataFrame(OS=as.factor(clin.data$OS),stage=as.factor(clin.data$stage)),
+#                              design=~OS
+#)
+#dds_stage <- estimateSizeFactors(dds_stage)
+#dds_stage <- DESeq(dds_stage)
+#res_stage <- results(dds_stage)
+```
+
+```{r Deseq2 with stage 2 and 3}
+#raw_count_stage2_3 <- merge(raw_count_stage2, raw_count_stage3)
+
+dds_stage2_3 <- DESeqDataSetFromMatrix(countData=raw_count_stage2_3,
+                              colData=DataFrame(OS=as.factor(stage_2_3$OS),stage=as.factor(stage_2_3$stage)),
                               design=~OS + stage
 )
-dds_stage <- estimateSizeFactors(dds_stage)
-dds_stage <- DESeq(dds_stage)
-res_stage <- results(dds_stage)
+dds_stage2_3 <- estimateSizeFactors(dds_stage2_3)
+dds_stage2_3 <- DESeq(dds_stage2_3)
+res_stage2_3 <- results(dds_stage2_3)
+```
+
+```{r Deseq2 with stage 2 and 4}
+#raw_count_stage2_3 <- merge(raw_count_stage2, raw_count_stage3)
+
+dds_stage2_4 <- DESeqDataSetFromMatrix(countData=raw_count_stage2_4,
+                              colData=DataFrame(OS=as.factor(stage_2_4$OS),stage=as.factor(stage_2_4$stage)),
+                              design=~OS + stage
+)
+dds_stage2_4 <- estimateSizeFactors(dds_stage2_4)
+dds_stage2_4 <- DESeq(dds_stage2_4)
+res_stage2_4 <- results(dds_stage2_4)
+```
+
+```{r Deseq2 with stage 3 and 4}
+#raw_count_stage2_3 <- merge(raw_count_stage2, raw_count_stage3)
+
+dds_stage3_4 <- DESeqDataSetFromMatrix(countData=raw_count_stage3_4,
+                              colData=DataFrame(OS=as.factor(stage_3_4$OS),stage=as.factor(stage_3_4$stage)),
+                              design=~OS + stage
+)
+dds_stage3_4 <- estimateSizeFactors(dds_stage3_4)
+dds_stage3_4 <- DESeq(dds_stage3_4)
+res_stage3_4 <- results(dds_stage3_4)
 ```
 
 ```{r MA plot}
-plotMA(res_stage)
+#plotMA(res_stage)
+plotMA(res_stage2)
+plotMA(res_stage3)
+plotMA(res_stage4)
+plotMA(res_stage2_3)
+plotMA(res_stage2_4)
+plotMA(res_stage3_4)
+```
+
+```{r Deseq2 with stage 2}
+
+dds_stage2 <- DESeqDataSetFromMatrix(countData=raw_count_stage2,
+                              colData=DataFrame(OS=as.factor(stage_2$OS),stage=as.factor(stage_2$stage)),
+                              design=~OS
+)
+dds_stage2 <- estimateSizeFactors(dds_stage2)
+dds_stage2 <- DESeq(dds_stage2)
+res_stage2 <- results(dds_stage2)
+```
+
+```{r Deseq2 with stage 3}
+#raw_count_stage2_3 <- bind_rows(raw_count_stage2, raw_count_stage3)
+
+dds_stage3 <- DESeqDataSetFromMatrix(countData=raw_count_stage3,
+                              colData=DataFrame(OS=as.factor(stage_3$OS),stage=as.factor(stage_3$stage)),
+                              design=~OS
+)
+dds_stage3 <- estimateSizeFactors(dds_stage3)
+dds_stage3 <- DESeq(dds_stage3)
+res_stage3 <- results(dds_stage3)
+```
+
+```{r Deseq2 with stage 4}
+#raw_count_stage2_3 <- bind_rows(raw_count_stage2, raw_count_stage3)
+
+dds_stage4 <- DESeqDataSetFromMatrix(countData=raw_count_stage4,
+                              colData=DataFrame(OS=as.factor(stage_4$OS),stage=as.factor(stage_4$stage)),
+                              design=~OS
+)
+dds_stage4 <- estimateSizeFactors(dds_stage4)
+dds_stage4 <- DESeq(dds_stage4)
+res_stage4 <- results(dds_stage4)
 ```
 
 ```{r volcano plot}
-plot(res_stage$log2FoldChange, -log10(res_stage$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+#plot(res_stage$log2FoldChange, -log10(res_stage$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+#    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
+
+plot(res_stage2$log2FoldChange, -log10(res_stage2$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    xlab="Log2 fold change stage2",  ylab= "-Log10 adjusted p-value", bty="l")
+plot(res_stage3$log2FoldChange, -log10(res_stage3$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    xlab="Log2 fold change stage3",  ylab= "-Log10 adjusted p-value", bty="l")
+plot(res_stage4$log2FoldChange, -log10(res_stage4$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    xlab="Log2 fold change stage4",  ylab= "-Log10 adjusted p-value", bty="l")
+
+plot(res_stage2_3$log2FoldChange, -log10(res_stage2_3$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
+plot(res_stage2_4$log2FoldChange, -log10(res_stage2_4$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
+plot(res_stage3_4$log2FoldChange, -log10(res_stage3_4$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
     xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
 ```
 ```{r get significant genes}
@@ -145,9 +237,8 @@ significantGenes <- normalizedCounts[sig_indices,]
 significantGenes_raw <- rawCounts[sig_indices,]
 ```
 
-
 ```{r biomart + cnv}
-cnv_final <- read.csv("/home/samra/Dokumente/Studium/Bioinformatik/Module/Master/SoSe2023/Data Science Part1/Project/MultiOmic_Datascience-main/results/cnv_analysis/final_cnv.csv",stringsAsFactors=FALSE, header=TRUE)
+cnv_final <- read.csv("../results/cnv_analysis/final_cnv.csv",stringsAsFactors=FALSE, header=TRUE)
 
 mart <- useMart('ENSEMBL_MART_ENSEMBL')
 mart <- useDataset('hsapiens_gene_ensembl', mart)
@@ -179,9 +270,9 @@ sig_genes_ann_stage <- matched.genes[which(matched.genes$ensembl_gene_id %in% si
 significantGenes_cnv <- significantGenes[cnv_genes_exp,]
 significantGenes_cnv_raw <- significantGenes_raw[cnv_gene_raw,]
 significantGenes_cnv_stage <- significantGenes_stage[cnv_genes_exp_stage,]
-write.table(significantGenes_cnv, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/cnv_genes_exp.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
-write.table(significantGenes_cnv_stage, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/cnv_genes_exp_stage.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
-write.table(significantGenes_cnv_raw, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/cnv_genes_exp_raw.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(significantGenes_cnv, file = "../results/gene_exp_analysis/cnv_genes_exp.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(significantGenes_cnv_stage, file = "../results/gene_exp_analysis/cnv_genes_exp_stage.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(significantGenes_cnv_raw, file = "../results/gene_exp_analysis/cnv_genes_exp_raw.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
 ```
 
 # Survival Analysis
@@ -218,7 +309,220 @@ matched.genes[gene_id,]
 ```
 
 
+#####----------------------------------------------------------------------------------------------------
 
 
+```{r get significant genes for stage 2}
+sig_indices <-which(res$padj < 0.01 & (res$log2FoldChange < -1 | res$log2FoldChange > 1))
+sig_indices_stage2 <-which(res_stage2$padj < 0.01 & (res_stage2$log2FoldChange < -1 | res_stage2$log2FoldChange > 1))
+######
+normalizedCounts_stage2 <- as.data.frame(counts(dds_stage2, normalized = TRUE))
+normalizedCounts <- as.data.frame(counts(dds, normalized = TRUE))
+rawCounts <- as.data.frame(counts(dds, normalized = FALSE))
+#####
+normalizedCounts_stage2$genes <- genes.arr
+normalizedCounts$genes <- genes.arr
+rawCounts$genes <- genes.arr
+#####
+significantGenes_stage2 <- normalizedCounts_stage2[sig_indices_stage2,]
+significantGenes <- normalizedCounts[sig_indices,]
+significantGenes_raw <- rawCounts[sig_indices,]
+```
 
+store significant genes in a list
+```{r biomart + cnv}
+cnv_final <- read.csv("../results/cnv_analysis/final_cnv.csv",stringsAsFactors=FALSE, header=TRUE)
+
+mart <- useMart('ENSEMBL_MART_ENSEMBL')
+mart <- useDataset('hsapiens_gene_ensembl', mart)
+
+annotLookup <- getBM(
+  mart = mart,
+  attributes = c(
+    'hgnc_symbol',
+    'ensembl_gene_id',
+    'gene_biotype'),
+  uniqueRows = TRUE)
+head(annotLookup)
+filt.annotLookup <- subset(annotLookup, hgnc_symbol != '')
+```
+
+```{r get overlapped genes of CNV and transcriptomic analysis}
+matched.genes <- filt.annotLookup[filt.annotLookup$hgnc_symbol %in% cnv_final$GeneSymbol, ]
+cnv_genes_exp <- which(significantGenes$genes %in% matched.genes$ensembl_gene_id)
+cnv_gene_raw <- which(significantGenes_raw$genes %in% matched.genes$ensembl_gene_id)
+cnv_genes_exp_stage2 <- which(significantGenes_stage2$genes %in% matched.genes$ensembl_gene_id)
+```
+
+```{r nhap}
+sig_genes_ann <- matched.genes[which(matched.genes$ensembl_gene_id %in% significantGenes$genes),]
+sig_genes_ann_stage2 <- matched.genes[which(matched.genes$ensembl_gene_id %in% significantGenes_stage2$genes),]
+```
+
+```{r final data for training}
+significantGenes_cnv <- significantGenes[cnv_genes_exp,]
+significantGenes_cnv_raw <- significantGenes_raw[cnv_gene_raw,]
+significantGenes_cnv_stage2 <- significantGenes_stage2[cnv_genes_exp_stage2,]
+write.table(significantGenes_cnv, file = "../results/gene_exp_analysis/cnv_genes_exp.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(significantGenes_cnv_stage2, file = "../results/gene_exp_analysis/cnv_genes_exp_stage2.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(significantGenes_cnv_raw, file = "../results/gene_exp_analysis/cnv_genes_exp_raw.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+```
+
+# Survival Analysis
+```{r multivariate cox hazard model}
+significantGenes_cnv <- read.csv("../results/gene_exp_analysis/cnv_genes_exp_raw.combine.csv",header=T,sep="\t")
+clin.data <- read.csv("../results/gene_exp_analysis/clinical.csv",header=T,sep="\t")
+all_genes <- significantGenes_cnv$genes
+gene_expression <- significantGenes_cnv[,-ncol(significantGenes_cnv)]
+row.names(gene_expression) <- all_genes
+gene_expression <- t(gene_expression)
+survival_data <- clin.data
+rownames(survival_data) <- survival_data$sample
+merged_data <- merge(gene_expression, survival_data, by = "row.names",all = TRUE)
+surv_obj <- with(merged_data, Surv(OS.time, OS))
+cox_model_2 <- coxph(surv_obj ~ . - Row.names - sample - X_PATIENT - OS - OS.time - stage, data = merged_data)
+```
+
+```{r}
+summary(cox_model_2)
+```
+
+```{r}
+#sfit <- survfit(Surv(OS.time, OS)~ stage, data=merged_data)
+#plot(sfit)
+
+sfit <- survfit(Surv(OS.time, OS)~ stage, data=merged_data, type = "kaplan-meier", 
+            conf.type = "log")
+autoplot(sfit, conf.int = F, main="Kaplan-Meier-estimate")
+```
+```{r}
+gene_id <- c("ENSG00000184697","ENSG00000237412","ENSG00000265787","ENSG00000277586","ENSG00000121871")
+row.names(matched.genes) <- matched.genes$ensembl_gene_id
+matched.genes[gene_id,]
+```
+
+
+#####----------------------------------------------------------------------------------------------------
+
+
+```{r get significant genes for stage 3}
+sig_indices <-which(res$padj < 0.01 & (res$log2FoldChange < -1 | res$log2FoldChange > 1))
+sig_indices_stage3 <-which(res_stage3$padj < 0.01 & (res_stage3$log2FoldChange < -1 | res_stage3$log2FoldChange > 1))
+######
+normalizedCounts_stage3 <- as.data.frame(counts(dds_stage3, normalized = TRUE))
+normalizedCounts <- as.data.frame(counts(dds, normalized = TRUE))
+rawCounts <- as.data.frame(counts(dds, normalized = FALSE))
+#####
+normalizedCounts_stage3$genes <- genes.arr
+normalizedCounts$genes <- genes.arr
+rawCounts$genes <- genes.arr
+#####
+significantGenes_stage3 <- normalizedCounts_stage3[sig_indices_stage3,] 
+significantGenes <- normalizedCounts[sig_indices,]
+significantGenes_raw <- rawCounts[sig_indices,]
+```
+
+store significant genes in a list
+```{r biomart + cnv}
+cnv_final <- read.csv("../results/cnv_analysis/final_cnv.csv",stringsAsFactors=FALSE, header=TRUE)
+
+mart <- useMart('ENSEMBL_MART_ENSEMBL')
+mart <- useDataset('hsapiens_gene_ensembl', mart)
+
+annotLookup <- getBM(
+  mart = mart,
+  attributes = c(
+    'hgnc_symbol',
+    'ensembl_gene_id',
+    'gene_biotype'),
+  uniqueRows = TRUE)
+head(annotLookup)
+filt.annotLookup <- subset(annotLookup, hgnc_symbol != '')
+```
+
+```{r get overlapped genes of CNV and transcriptomic analysis}
+matched.genes <- filt.annotLookup[filt.annotLookup$hgnc_symbol %in% cnv_final$GeneSymbol, ]
+cnv_genes_exp <- which(significantGenes$genes %in% matched.genes$ensembl_gene_id)
+cnv_gene_raw <- which(significantGenes_raw$genes %in% matched.genes$ensembl_gene_id)
+cnv_genes_exp_stage3 <- which(significantGenes_stage3$genes %in% matched.genes$ensembl_gene_id)
+```
+
+```{r nhap}
+sig_genes_ann <- matched.genes[which(matched.genes$ensembl_gene_id %in% significantGenes$genes),]
+sig_genes_ann_stage3 <- matched.genes[which(matched.genes$ensembl_gene_id %in% significantGenes_stage3$genes),]
+```
+
+```{r final data for training}
+significantGenes_cnv <- significantGenes[cnv_genes_exp,]
+significantGenes_cnv_raw <- significantGenes_raw[cnv_gene_raw,]
+significantGenes_cnv_stage3 <- significantGenes_stage3[cnv_genes_exp_stage3,]
+write.table(significantGenes_cnv, file = "../results/gene_exp_analysis/cnv_genes_exp.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(significantGenes_cnv_stage3, file = "../results/gene_exp_analysis/cnv_genes_exp_stage3.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(significantGenes_cnv_raw, file = "../results/gene_exp_analysis/cnv_genes_exp_raw.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+```
+
+# Survival Analysis
+```{r multivariate cox hazard model}
+significantGenes_cnv <- read.csv("../results/gene_exp_analysis/cnv_genes_exp_raw.combine.csv",header=T,sep="\t")
+clin.data <- read.csv("../results/gene_exp_analysis/clinical.csv",header=T,sep="\t")
+all_genes <- significantGenes_cnv$genes
+gene_expression <- significantGenes_cnv[,-ncol(significantGenes_cnv)]
+row.names(gene_expression) <- all_genes
+gene_expression <- t(gene_expression)
+survival_data <- clin.data
+rownames(survival_data) <- survival_data$sample
+merged_data <- merge(gene_expression, survival_data, by = "row.names",all = TRUE)
+surv_obj <- with(merged_data, Surv(OS.time, OS))
+cox_model_3 <- coxph(surv_obj ~ . - Row.names - sample - X_PATIENT - OS - OS.time - stage, data = merged_data)
+```
+
+```{r}
+summary(cox_model_3)
+```
+
+```{r}
+#sfit <- survfit(Surv(OS.time, OS)~ stage, data=merged_data)
+#plot(sfit)
+
+sfit <- survfit(Surv(OS.time, OS)~ stage, data=merged_data, type = "kaplan-meier", 
+            conf.type = "log")
+autoplot(sfit, conf.int = F, main="Kaplan-Meier-estimate")
+```
+```{r}
+gene_id <- c("ENSG00000184697","ENSG00000237412","ENSG00000265787","ENSG00000277586","ENSG00000121871")
+row.names(matched.genes) <- matched.genes$ensembl_gene_id
+matched.genes[gene_id,]
+```
+
+```{r PCA plot}
+vsdata <- vst(dds_stage2_3, blind=F)
+plotPCA(vsdata, intgroup = "stage")
+```
+
+```{r overlapping genes}
+library(VennDiagram)
+
+venn.diagram(x = list(rownames(res_stage2),rownames(res_stage3)),
+                      category.names= c("Full~passage+inc_time+treatment","FULL~passage+inc_time+treatment+inc_time:treatment"),
+                      width = 800,height = 600 ,
+                      fill = myCol[c(1:2)],lty = 'blank', imagetype="png",
+                      fontface = "bold",cat.default.pos = "outer",cat.pos = c(-15,15),
+                      filename="deseq_design_comparison.png",cex = .5,cat.cex = .2)
+
+venn.diagram(x = list(rownames(res_stage2),rownames(res_stage3)), filename="deseq_design_comparison.png")
+
+# Generate 3 sets of 200 words
+set1 <- paste(rep("word_" , 200) , sample(c(1:1000) , 200 , replace=F) , sep="")
+set2 <- paste(rep("word_" , 200) , sample(c(1:1000) , 200 , replace=F) , sep="")
+set3 <- paste(rep("word_" , 200) , sample(c(1:1000) , 200 , replace=F) , sep="")
+ 
+# Chart
+venn.diagram(
+  x = list(res_stage2,res_stage3),
+  category.names = c("stage2" , "stage3 "),
+  filename = 'venn_diagramm.png',
+  output=TRUE
+)
+
+```
 
