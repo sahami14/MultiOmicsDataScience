@@ -1,0 +1,248 @@
+---
+title: "survAnalysis"
+output: html_document
+date: "2023-07-12"
+---
+
+```{r}
+#if (!require("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+
+#BiocManager::install("TCGAbiolinks")
+```
+
+
+```{r packages}
+require(DESeq2)
+require('biomaRt')
+require(survival)
+require(data.table)
+#library(EnhancedVolcano)
+library(ggplot2)
+library(ggfortify)
+library(scales)
+library(haven)
+library(nnet)
+library(simstudy)
+library(magrittr)
+library(class)
+library(dplyr)
+library(survminer)
+library(TCGAbiolinks)
+library(pheatmap)
+library(affy)
+library(glmnet)
+library(tidyr)
+library(tibble)
+```
+
+This part, I loading the raw htseq-count of transcriptomic data, convert it to read count data and write it to a file.
+```{r reading transcriptomic data}
+gene.exp <- read.table("../data/TCGA-BLCA.htseq_counts.tsv.gz",
+                     header = TRUE,sep = "\t",stringsAsFactors = FALSE)
+#colnames(gene.exp) <- gsub("\\.","-",colnames(gene.exp))
+gene.exp <- gene.exp[grepl("ENS", gene.exp$Ensembl_ID), ]
+gene.exp <- gene.exp[, order(names(gene.exp))]
+
+genecode.id <- gene.exp[,1]
+fixed_names <- sapply(strsplit(genecode.id, ".", fixed=T), function(x) x[1])
+
+gene.exp[,1] <- fixed_names
+
+row.names(gene.exp) <- gene.exp[,1]
+gene.exp <- gene.exp[-1] #remove double column 
+gene.exp <- 2^gene.exp -1
+gene.exp <- subset(gene.exp, !(rowSums(gene.exp < 5) == ncol(gene.exp)))
+
+genes.arr <- row.names(gene.exp) #name of genes
+write.table(gene.exp, file = "../results/gene_exp_analysis/count_data.csv", sep = "\t", quote = FALSE, row.names = TRUE)
+#gene.exp <- as.data.frame(lapply(gene.exp, as.integer))
+
+# checking if the important genes are in the dataset
+#"ENSG00000135144" %in% rownames(gene.exp) 
+#"ENSG00000143772" %in% rownames(gene.exp) 
+#"ENSG00000130332" %in% rownames(gene.exp) 
+#"ENSG00000124831" %in% rownames(gene.exp) 
+"ENSG00000150764" %in% rownames(gene.exp)
+"ENSG00000113657" %in% rownames(gene.exp)
+"ENSG00000125895" %in% rownames(gene.exp)
+"ENSG00000137693" %in% rownames(gene.exp)
+"ENSG00000162520" %in% rownames(gene.exp)
+
+# find the rownumbers of the genes
+which(rownames(gene.exp) %in% c("ENSG00000150764", "ENSG00000113657", "ENSG00000125895", 
+                                "ENSG00000137693", "ENSG00000162520"))
+
+# make tabke for these genes for heatmap
+gene.exp.cut <- gene.exp[c(4202, 5736, 7471, 9276, 10693),]
+gene.exp.cut <- as.matrix(gene.exp.cut)
+heatmap(gene.exp.cut)
+pheatmap(gene.exp.cut)
+```
+
+```{r reading clinical data}
+clin.data <- read.csv("../data/TCGA-BLCA.survival.tsv",
+                      header = TRUE,sep = "\t",stringsAsFactors = FALSE)
+
+clin.data <- clin.data[order(clin.data$sample), ] # order in sample
+clin.data$sample <- gsub("\\-",".",clin.data$sample) # replace - with .
+color_sample <- ifelse(clin.data$OS == 1, "red", "blue")
+
+table(clin.data$OS) # how many dead (1) and alive (0)
+```
+
+```{r reading phenotype data}
+phenotype <- read.csv("../data/TCGA-BLCA.GDC_phenotype.tsv.gz",header=TRUE,sep="\t")
+phenotype <- phenotype[order(phenotype$submitter_id.samples), ]
+phenotype$submitter_id.samples <- gsub("\\-",".",phenotype$submitter_id.samples)
+```
+
+Clinical data including stage of patient is here.
+```{r Preprocess data}
+overlapped.samples <- colnames(gene.exp) #samples from transcriptomic data
+clin.data <- clin.data[clin.data$sample %in% overlapped.samples, ]
+phenotype <- phenotype[phenotype$submitter_id.samples %in% clin.data$sample, ]
+phenotype <- phenotype[!grepl("not reported", phenotype$tumor_stage.diagnoses), ]
+
+gene.exp <- gene.exp[,phenotype$submitter_id.samples]
+clin.data <- clin.data[clin.data$sample %in% phenotype$submitter_id.samples, ]
+phenotype$tumor_stage.diagnoses <- factor(phenotype$tumor_stage.diagnoses, levels = c("stage i", "stage ii", "stage iii", "stage iv"))
+phenotype$tumor_stage.diagnoses <- as.numeric(phenotype$tumor_stage.diagnoses)
+clin.data$stage <- phenotype$tumor_stage.diagnoses
+phenotype <- phenotype[phenotype$lost_follow_up == "NO",]
+clin.data <- clin.data[clin.data$sample %in% phenotype$submitter_id.samples, ]
+gene.exp <- gene.exp[,phenotype$submitter_id.samples]
+write.table(clin.data, file = "../results/gene_exp_analysis/clinical.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+```
+
+```{r}
+clin_stage <- read.csv("../results/gene_exp_analysis/clinical.csv",header=TRUE,sep="\t") # ordered
+#raw_count <- read.csv("../results/gene_exp_analysis/count_data.csv",header=TRUE,sep = "\t") # the same as gene.exp dataset
+```
+
+# Stratifying gene expression data
+We removed the stage 1, because all patients survive
+```{r}
+#separate clinical data by stage
+clin_stage_list <- split(clin.data, clin.data$stage)
+stage_2 <- clin_stage_list$`2`
+stage_3 <- clin_stage_list$`3`
+stage_4 <- clin_stage_list$`4`
+```
+
+```{r more plots}
+#vsdata <- vst(dds_stage2_3, blind=F)
+#plotPCA(vsdata, intgroup = "stage")
+
+hist(clin.data$OS.time)
+#ggplot(clin.data, aes(x=stage, fill=OS)) + geom_histogram() + facet_wrap(~OS, scales = "free_x")
+#ggplot(clin.data, aes(x=OS.time, fill=stage)) + geom_histogram() + facet_wrap(~stage, scales = "free_x")
+
+ggplot(stage_2, aes(x=OS.time, fill=OS)) + geom_histogram() + facet_wrap(~OS, scales = "free_x") +
+  ggtitle("Survival of stage 2") +
+  xlab("OS time") + ylab("number of samples") + labs(fill = "Survival")
+
+ggplot(stage_3, aes(x=OS.time, fill=OS)) + geom_histogram() + facet_wrap(~OS, scales = "free_x") +
+  ggtitle("Survival of stage 3") +
+  xlab("OS time") + ylab("number of samples") + labs(fill = "Survival")
+
+ggplot(stage_4, aes(x=OS.time, fill=OS)) + geom_histogram() + facet_wrap(~OS, scales = "free_x") +
+  ggtitle("Survival of stage 4") +
+  xlab("OS time") + ylab("number of samples") + labs(fill = "Survival")
+
+```
+
+## To do:
+- do histogramm of days til death for each stage -> done
+- take the gene of intersection and do survival analysis -> done
+- but also find important genes/features for each stage
+  -> google the genes and look does they have smth to do with the cancer
+
+```{r surv analysis}
+
+#gene.data <- gene.exp |>
+#  pivot_longer(cols = everything(), names_to = "sample", values_to = "count")
+
+gene.data <- gene.exp                                           # Duplicate data
+gene.data <- tibble::rownames_to_column(gene.data, "row_names") # Apply rownames_to_column
+colnames(gene.data)[1] <- "gene_id"                             # rename colname
+gene.data  
+
+gene.data["Counts"] <- rowSums(gene.data[,2:293])
+gene.data$RowMeans<-as.integer(rowMeans(gene.data[,2:293]))
+
+# making the tables for the significant genes
+gene1 <- gene.data[c(4202),]
+gene2 <- gene.data[c(5736),]
+gene3 <- gene.data[c(7471),]
+gene4 <- gene.data[c(9276),]
+gene5 <- gene.data[c(10693),]
+
+gene.data1 <- gene1 |>
+  pivot_longer(cols = starts_with("TCGA"), names_to = "sample", values_to = "count")
+
+gene.data2 <- gene2 |>
+  pivot_longer(cols = starts_with("TCGA"), names_to = "sample", values_to = "count")
+
+gene.data3 <- gene3 |>
+  pivot_longer(cols = starts_with("TCGA"), names_to = "sample", values_to = "count")
+
+gene.data4 <- gene4 |>
+  pivot_longer(cols = starts_with("TCGA"), names_to = "sample", values_to = "count")
+
+gene.data5 <- gene5 |>
+  pivot_longer(cols = starts_with("TCGA"), names_to = "sample", values_to = "count")
+
+#gene.Exp <- gene.data |>
+#  pivot_longer(cols = starts_with("TCGA"), names_to = "sample", values_to = "count")
+
+# denote which cases have higher / lower expression than median count
+#gene.Exp$strata <- ifelse(gene.Exp$count >= gene.Exp$RowMeans, "HIGH", "LOW")
+
+gene.data1$strata <- ifelse(gene.data1$count >= gene.data1$RowMeans, "HIGH", "LOW")
+gene.data2$strata <- ifelse(gene.data2$count >= gene.data2$RowMeans, "HIGH", "LOW")
+gene.data3$strata <- ifelse(gene.data3$count >= gene.data3$RowMeans, "HIGH", "LOW")
+gene.data4$strata <- ifelse(gene.data4$count >= gene.data4$RowMeans, "HIGH", "LOW")
+gene.data5$strata <- ifelse(gene.data5$count >= gene.data5$RowMeans, "HIGH", "LOW")
+
+#Assuming your data frame is called "df" and the column you want to remove duplicates from is called "column_name"
+#geneExp <- gene.Exp
+#unique_values <- unique(geneExp$sample)
+# Assuming your data frame is called "df" and the column you want to remove duplicates from is called "column_name"
+#geneExp_no_duplicates <- geneExp[!duplicated(geneExp$sample), ]
+
+# Add clinical information to gene.data tables
+gene.Exp1 <- gene.data1
+gene.Exp1 <- merge(gene.Exp1, clin_stage, by.x = 'sample', by.y = 'sample')
+gene.Exp2 <- gene.data2
+gene.Exp2 <- merge(gene.Exp2, clin_stage, by.x = 'sample', by.y = 'sample')
+gene.Exp3 <- gene.data3
+gene.Exp3 <- merge(gene.Exp3, clin_stage, by.x = 'sample', by.y = 'sample')
+gene.Exp4 <- gene.data4
+gene.Exp4 <- merge(gene.Exp4, clin_stage, by.x = 'sample', by.y = 'sample')
+gene.Exp5 <- gene.data5
+gene.Exp5 <- merge(gene.Exp5, clin_stage, by.x = 'sample', by.y = 'sample')
+
+# survival curves for each gene -----------
+
+sfit1 <- survfit(Surv(OS.time, OS)~ strata, data=gene.Exp1, type = "kaplan-meier", 
+            conf.type = "log")
+autoplot(sfit1, conf.int = F, main="Kaplan-Meier-estimate for the gene ENSG00000113657")
+
+sfit2 <- survfit(Surv(OS.time, OS)~ strata, data=gene.Exp2, type = "kaplan-meier", 
+            conf.type = "log")
+autoplot(sfit2, conf.int = F, main="Kaplan-Meier-estimate for the gene ENSG00000125895")
+
+sfit3 <- survfit(Surv(OS.time, OS)~ strata, data=gene.Exp3, type = "kaplan-meier", 
+            conf.type = "log")
+autoplot(sfit3, conf.int = F, main="Kaplan-Meier-estimate for the gene ENSG00000137693")
+
+sfit4 <- survfit(Surv(OS.time, OS)~ strata, data=gene.Exp4, type = "kaplan-meier", 
+            conf.type = "log")
+autoplot(sfit4, conf.int = F, main="Kaplan-Meier-estimate for the gene ENSG00000150764")
+
+sfit5 <- survfit(Surv(OS.time, OS)~ strata, data=gene.Exp5, type = "kaplan-meier", 
+            conf.type = "log")
+autoplot(sfit5, conf.int = F, main="Kaplan-Meier-estimate for the gene ENSG00000162520")
+
+```
